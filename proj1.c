@@ -12,7 +12,7 @@
 char c;
 const char * exitstr = "exit";
 const char * cdstr = "cd";
-int stdioCopy[2];           //required for pipe execution to be external
+int stdioCopy[2];           //required for pipe execution to save initial IO decriptors as globals
 
 typedef char * word;
 struct cmnd {
@@ -68,11 +68,11 @@ cmndPtr getWord () {
             tmp = NULL;
         }
 
-        if (c == "\""[0]) {
+        if (c == "\""[0] && !quote) {
             doquote = !doquote;
             c = getchar ();
             continue;
-        } else if (c == "'"[0]) {
+        } else if (c == "'"[0] && !doquote) {
             quote = !quote;
             c = getchar ();
             continue;
@@ -81,7 +81,9 @@ cmndPtr getWord () {
         if (c == "\\"[0]) {
             c = getchar ();
             if (c == '\n') {
+                printf ("> ");
                 c = getchar ();
+                skipSpaces ();
                 continue;
             } else if ((c == "\""[0] || c == "\\"[0]) && doquote) {
                 str[len] = c;
@@ -89,8 +91,12 @@ cmndPtr getWord () {
                 len += 1;
                 c = getchar ();
                 continue;
+            } else {
+                str[len] = "\\"[0];
+                str[len + 1] = 0;
+                len += 1;
+                continue;
             }
-            continue;
         }
 
         str[len] = c;
@@ -352,6 +358,7 @@ void execute (decomPointer begin) {
     int fd[2];
     int ifile, ofile;
     ifile = 0;
+    ofile = 0;
 
     if (pipe(fd) == -1) {
         printf("Error: %s\n", strerror(errno));
@@ -359,7 +366,6 @@ void execute (decomPointer begin) {
         return;
     }
 
-    //exetution begins here
     pid_t p = fork ();
 
     if (p == -1) {
@@ -391,22 +397,17 @@ void execute (decomPointer begin) {
         int stat, fild;
         char buf;
         close (fd[1]);
-        waitpid (p, &stat, 0);
-        dup2 (stdioCopy[0], 0);
-        if (stat == EXIT_FAILURE) {
-            free (argv);
-            return;
-        }
         if (begin->pipelnout && begin->next != NULL) {
             dup2 (fd[0], 0);
             execute (begin->next);
+            dup2 (stdioCopy[0], 0);
+            dup2 (stdioCopy[1], 1);
         } else {
-        //outputt begins here
             if (begin->outredbeg == 1) {
                 ofile = open (begin->redout->wrd, O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, S_IRUSR | S_IWUSR);
                 dup2 (ofile, 1);
                 while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    printf ("%c", buf);
+                    write (1,&buf,1);
                 }
                 dup2 (stdioCopy[1], 1);
                 close (ofile);
@@ -420,7 +421,7 @@ void execute (decomPointer begin) {
                 }
                 dup2 (ofile, 1);
                 while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    printf ("%c", buf);
+                    write (1,&buf,1);
                 }
                 dup2 (stdioCopy[1], 1);
                 close (ofile);
@@ -428,14 +429,14 @@ void execute (decomPointer begin) {
             else {
                 dup2 (stdioCopy[1], 1);
                 while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    printf ("%c", buf);
+                    write (1,&buf,1);
                 }
             }
         }
-        //jotputt ends here
+        waitpid (p, &stat, 0);
 
     }
-    //ends here
+    close(fd[0]);
     free (argv);
     if (ifile > 0){
         close (ifile);
@@ -445,7 +446,8 @@ void execute (decomPointer begin) {
 
 int main () {
     // char c - made it a global variable to reduce number of pointers and a bit clarify the code
-    pid_t pdt;
+    pid_t pdt, pid;
+    int backgrounds = 0;
     stdioCopy[0] = dup(0);
     stdioCopy[1] = dup(1);
     int exitflag, chdirflag;
@@ -458,6 +460,7 @@ int main () {
     }
     c = getchar ();
     decomPointer curr = getCommand ();
+    printf ("\n");
     if (curr != NULL) {
         exitflag = strcmp (curr->args->wrd, exitstr);
     } else {
@@ -465,15 +468,19 @@ int main () {
     }
 
     while (exitflag != 0) {
+        pid = waitpid(-1, NULL, WNOHANG);
+        if (pid > 0) {
+            backgrounds--;
+        }
         if (curr != NULL) {
             //printAllCmnds (curr);
-            //TODO: parse cd command in different way
             if (strcmp (curr->args->wrd, cdstr) == 0) {
                 if (chdirflag = chdir (curr->args->next->wrd) == -1) {
                     printf("Error: %s\n", strerror(errno));
                 }
             } else {
                 if (curr->backgr == 1) {
+                    backgrounds ++;
                     pdt = fork ();
                     if (pdt == 0) {
                         execute (curr);
@@ -497,12 +504,27 @@ int main () {
         }
         c = getchar ();
         curr = getCommand ();
+	    printf("\n");
         if (curr != NULL) {
             exitflag = strcmp (curr->args->wrd, exitstr);
         } else {
             exitflag = 1;
+
         }
 
+    }
+    pid = waitpid(-1, NULL, WNOHANG);
+    if (pid > 0) {
+        backgrounds--;
+    }
+    if (backgrounds > 0) {
+        printf ("Waiting for all child processes to terminate\n");
+    }
+    while (backgrounds > 0) {
+        pid = waitpid(-1, NULL, WNOHANG);
+        if (pid > 0) {
+            backgrounds--;
+        }
     }
     free (cwd);
     freeMem (&curr);
