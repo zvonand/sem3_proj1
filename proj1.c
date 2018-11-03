@@ -186,7 +186,6 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
         skipSpaces (c);
 
         if (*c == '|') {
-            //puts("| detected");
             curr->pipelnout = 1;
             *c = getchar ();
             skipSpaces (c);
@@ -207,12 +206,12 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
             break;
         }
         else if (*c == '&') {
-            //puts("& detected");
             curr->backgr = 1;
             *c = getchar ();
             skipSpaces (c);
             if (*c != '\n') {
                 printf("Wrong argument: & must be at the end ");
+                freeCmnd (&begin->args);
                 freeMem (&begin);
                 return NULL;
             }
@@ -221,6 +220,7 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
         else if (*c == '>') {
             if (curr->outredend || curr->outredbeg) {
                 printf ("%s\n", "Error: double output redirect");
+                freeCmnd (&begin->args);
                 freeMem (&begin);
                 return NULL;
             }
@@ -234,6 +234,7 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
             curr->redout = getWord(c);
             if (curr->redout == NULL) {
                 printf("Output redirect error: No filename stated\n");
+                freeCmnd (&begin->args);
                 freeMem (&begin);
                 return NULL;
             }
@@ -243,6 +244,7 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
         else if (*c == '<') {
             if (curr->inred) {
                 printf ("%s\n", "Error: double input redirect");
+                freeCmnd (&begin->args);
                 freeMem (&begin);
                 return NULL;
             }
@@ -329,6 +331,8 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
     }
     else if (p == 0) {
         //  child process
+        close (fd[0]);
+        dup2 (fd[1], 1);
         if (begin->inred == 1) {
             ifile = open (begin->redin->wrd, O_RDONLY);
             if (ifile == -1) {
@@ -337,8 +341,21 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
             }
             dup2 (ifile, 0);
         }
-        close (fd[0]);
-        dup2 (fd[1], 1);
+        if (begin->outredbeg == 1) {
+            ofile = open (begin->redout->wrd, O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, S_IRUSR | S_IWUSR);
+            if (ofile == -1) {
+                printf("Error: %s\n", strerror(errno));
+                exit (EXIT_FAILURE);
+            }
+            dup2 (ofile, 1);
+        } else if (begin->outredend == 1) {
+            ofile = open (begin->redout->wrd, O_RDWR | O_APPEND | O_SYNC);
+            if (ofile == -1) {
+                printf("Error: %s\n", strerror(errno));
+                exit (EXIT_FAILURE);
+            }
+            dup2 (ofile, 1);
+        }
         execvp (argv[0], argv);
         //in case of error:
         dup2 (stdioCopy[0], 0);
@@ -357,34 +374,9 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
             dup2 (stdioCopy[0], 0);
             dup2 (stdioCopy[1], 1);
         } else {
-            if (begin->outredbeg == 1) {
-                ofile = open (begin->redout->wrd, O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, S_IRUSR | S_IWUSR);
-                dup2 (ofile, 1);
-                while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    write (1,&buf,1);
-                }
-                dup2 (stdioCopy[1], 1);
-                close (ofile);
-            }
-            else if (begin->outredend == 1) {
-                ofile = open (begin->redout->wrd, O_RDWR | O_APPEND | O_SYNC);
-                if (ofile == -1) {
-                    printf("Error: %s\n", strerror(errno));
-                    free (argv);
-                    return;
-                }
-                dup2 (ofile, 1);
-                while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    write (1,&buf,1);
-                }
-                dup2 (stdioCopy[1], 1);
-                close (ofile);
-            }
-            else {
-                dup2 (stdioCopy[1], 1);
-                while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
-                    write (1,&buf,1);
-                }
+            dup2 (stdioCopy[1], 1);
+            while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
+                write (1,&buf,1);
             }
         }
         waitpid (p, &stat, 0);
