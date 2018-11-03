@@ -9,17 +9,17 @@
 #include <string.h>
 #include <limits.h>
 
-int stdioCopy[2];           //required for pipe execution to save initial IO decriptors as globals
+int stdioCopy[2];                               //required for pipe execution to save initial IO decriptors as globals
 
 typedef char * word;
-struct cmnd {           //for storing string, its length and link to next
+struct cmnd {                                   //for storing string, its length and link to next
     word wrd;
     int len;
     struct cmnd * next;
 };
 typedef struct cmnd * cmndPtr;
 
-struct decomposed {     //store command with all necessary flags
+struct decomposed {                             //for storing command with all necessary flags
     cmndPtr args;
     int backgr, inred, outredbeg, outredend, pipelnout, pipelnin, argsNum;
     cmndPtr redin, redout;
@@ -41,7 +41,7 @@ void skipToNewLine (char * c) {
     return;
 }
 
-cmndPtr getWord (char * c) {
+cmndPtr getWord (char * c) {                    //input a single word and put it in cmnd
     int len = 0;
     char c1;
     int allocSize = 5;
@@ -53,7 +53,7 @@ cmndPtr getWord (char * c) {
     skipSpaces (c);
     if (*c == '\n') {
         free (str);
-        return NULL;
+        return NULL;        //word is empty, nothing to read
     }
     while (quote || doquote || (*c != ' ' && *c != '\n'  && *c != '|'  && *c != '&' && *c != '>' && *c != '<')) {
         if (len >= allocSize - 1) {                     //memory reallocation if needed
@@ -121,7 +121,7 @@ cmndPtr getWord (char * c) {
     return ret;
 }
 
-void freeCmnd (cmndPtr * beg) {
+void freeCmnd (cmndPtr * beg) {                 //free unused cmnd
     cmndPtr curr1, curr2;
     curr1 = *beg;
     while (curr1 != NULL) {
@@ -134,7 +134,7 @@ void freeCmnd (cmndPtr * beg) {
     return;
 }
 
-void freeMem (decomPointer * beg) {
+void freeMem (decomPointer * beg) {             //free unused decomposed command
     decomPointer curr1, curr2;
     curr1 = * beg;
     while (curr1 != NULL) {
@@ -152,7 +152,7 @@ void freeMem (decomPointer * beg) {
 
 }
 
-decomPointer initCommand () {
+decomPointer initCommand () {                   //create template for decomposed command with default values
     decomPointer ret  = (decomPointer) malloc (sizeof(struct decomposed));
     ret->args = NULL;
     ret->redin = NULL;
@@ -167,7 +167,7 @@ decomPointer initCommand () {
     ret->argsNum = 0;
 }
 
-decomPointer getCommand (char * c) {
+decomPointer getCommand (char * c) {            //getWord until newline, incompatible flags or special symbols
     decomPointer begin = initCommand ();
     int redirected = 0;
     decomPointer curr = begin;
@@ -283,47 +283,7 @@ decomPointer getCommand (char * c) {
     }
 }
 
-void printWord (cmndPtr beg) {
-    while (beg != NULL) {
-        printf ("%s%s", beg->wrd, " ");
-        beg = beg->next;
-    }
-    printf("\n");
-    return;
-}
-
-void comPrint (decomPointer beg) {
-    if (beg == NULL) {
-        printf("%s\n", "NULL");
-    } else {
-        printf ("Args: ");
-        printWord (beg->args);
-        printf ("%s%i\n", "backgr: ", beg->backgr);
-        printf ("%s%i\n", "inred: ", beg->inred);
-        printf ("%s%i\n", "outredbeg: ", beg->outredbeg);
-        printf ("%s%i\n", "outredend: ", beg->outredend);
-        printf ("%s%i\n", "pipelnout: ", beg->pipelnout);
-        printf ("%s%i\n", "pipelnin: ", beg->pipelnin);
-        printf ("%s%i\n", "argsNum: ", beg->argsNum);
-        printf ("Input redir file: ");
-        printWord (beg->redin);
-        printf("\n");
-        printf ("Output redir file: ");
-        printWord (beg->redout);
-
-    }
-}
-
-void printAllCmnds (decomPointer beg) {
-    while (beg != NULL) {
-        comPrint (beg);
-        printf ("\n");
-        beg = beg->next;
-    }
-    return;
-}
-
-word * parseCmnd (decomPointer toParse) {
+word * parseCmnd (decomPointer toParse) {       //return a char ** from decomposed for execvp
     int argsNum = 0;
     cmndPtr curr = toParse->args;
 
@@ -347,14 +307,14 @@ word * parseCmnd (decomPointer toParse) {
     return num;
 }
 
-void execute (decomPointer begin) {
+void execute (decomPointer begin) {             //main magic here, fork/exec called here
     word* argv = parseCmnd (begin);
     int fd[2];
     int ifile, ofile;
     ifile = 0;
     ofile = 0;
 
-    if (pipe(fd) == -1) {
+    if (pipe(fd) == -1) {                       //if pipe failed to open
         printf("Error: %s\n", strerror(errno));
         free (argv);
         return;
@@ -438,9 +398,9 @@ void execute (decomPointer begin) {
     return;
 }
 
-int main () {
+int main () {                                   //a bit too large, but simple
     char c;
-    const char * exitstr = "exit";
+    const char * exitstr = "exit";              //needed for exit/cd commands recognition
     const char * cdstr = "cd";
     pid_t pdt, pid;
     int backgrounds = 0;
@@ -463,22 +423,23 @@ int main () {
         exitflag = 1;
     }
 
-    while (exitflag != 0) {
+    while (exitflag != 0) {                     //while command != exit
         pid = waitpid(-1, NULL, WNOHANG);
         if (pid > 0) {
             backgrounds--;
         }
-        if (curr != NULL) {
-            //printAllCmnds (curr);
+        if (curr != NULL) {                     //check if command not empty
             if (strcmp (curr->args->wrd, cdstr) == 0) {
-                if (chdirflag = chdir (curr->args->next->wrd) == -1) {
+                if (curr->args->next == NULL) {
+                    printf ("Error: no path stated\n");
+                } else if (chdirflag = chdir (curr->args->next->wrd) == -1) {
                     printf("Error: %s\n", strerror(errno));
                 }
             } else {
                 if (curr->backgr == 1) {
                     backgrounds ++;
                     pdt = fork ();
-                    if (pdt == 0) {
+                    if (pdt == 0) {             //background mode needed, launching one more process
                         execute (curr);
                         exit (1);
                     }
@@ -509,13 +470,14 @@ int main () {
         }
 
     }
-    pid = waitpid(-1, NULL, WNOHANG);
+    pid = waitpid(-1, NULL, WNOHANG);                   //check if all children terminated, wait for them
     if (pid > 0) {
         backgrounds--;
     }
     if (backgrounds > 0) {
-        printf ("Waiting for all child processes to terminate\n");
+        printf ("Waiting for all children to terminate, CTRL - C to quit now\n");
     }
+
     while (backgrounds > 0) {
         pid = waitpid(-1, NULL, WNOHANG);
         if (pid > 0) {
