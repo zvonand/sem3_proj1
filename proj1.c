@@ -9,20 +9,17 @@
 #include <string.h>
 #include <limits.h>
 
-char c;
-const char * exitstr = "exit";
-const char * cdstr = "cd";
 int stdioCopy[2];           //required for pipe execution to save initial IO decriptors as globals
 
 typedef char * word;
-struct cmnd {
+struct cmnd {           //for storing string, its length and link to next
     word wrd;
     int len;
     struct cmnd * next;
 };
 typedef struct cmnd * cmndPtr;
 
-struct decomposed {
+struct decomposed {     //store command with all necessary flags
     cmndPtr args;
     int backgr, inred, outredbeg, outredend, pipelnout, pipelnin, argsNum;
     cmndPtr redin, redout;
@@ -30,21 +27,21 @@ struct decomposed {
 };
 typedef struct decomposed * decomPointer;
 
-void skipSpaces () {
-    while (c == ' ') {
-        c = getchar ();
+void skipSpaces (char * c) {
+    while (*c == ' ') {
+        *c = getchar ();
     }
     return;
 }
 
-void skipToNewline () {
-    while (c != '\n') {
-        c = getchar ();
+void skipToNewLine (char * c) {
+    while (*c != '\n') {
+        *c = getchar ();
     }
     return;
 }
 
-cmndPtr getWord () {
+cmndPtr getWord (char * c) {
     int len = 0;
     char c1;
     int allocSize = 5;
@@ -53,12 +50,12 @@ cmndPtr getWord () {
     word str = (word) malloc (sizeof(char) * allocSize);
     str[0] = 0;
     word tmp;
-    skipSpaces ();
-    if (c == '\n') {
+    skipSpaces (c);
+    if (*c == '\n') {
         free (str);
         return NULL;
     }
-    while (quote || doquote || (c != ' ' && c != '\n'  && c != '|'  && c != '&' && c != '>' && c != '<')) {
+    while (quote || doquote || (*c != ' ' && *c != '\n'  && *c != '|'  && *c != '&' && *c != '>' && *c != '<')) {
         if (len >= allocSize - 1) {                     //memory reallocation if needed
             allocSize += allocSize;
             tmp = (word) malloc (sizeof(char) * allocSize);
@@ -68,28 +65,28 @@ cmndPtr getWord () {
             tmp = NULL;
         }
 
-        if (c == "\""[0] && !quote) {
+        if (*c == "\""[0] && !quote) {
             doquote = !doquote;
-            c = getchar ();
+            *c = getchar ();
             continue;
-        } else if (c == "'"[0] && !doquote) {
+        } else if (*c == "'"[0] && !doquote) {
             quote = !quote;
-            c = getchar ();
+            *c = getchar ();
             continue;
         }
 
-        if (c == "\\"[0]) {
-            c = getchar ();
-            if (c == '\n') {
+        if (*c == "\\"[0]) {
+            *c = getchar ();
+            if (*c == '\n') {
                 printf ("> ");
-                c = getchar ();
-                skipSpaces ();
+                *c = getchar ();
+                skipSpaces (c);
                 continue;
-            } else if ((c == "\""[0] || c == "\\"[0]) && doquote) {
-                str[len] = c;
+            } else if ((*c == "\""[0] || *c == "\\"[0]) && doquote) {
+                str[len] = *c;
                 str[len + 1] = 0;
                 len += 1;
-                c = getchar ();
+                *c = getchar ();
                 continue;
             } else {
                 str[len] = "\\"[0];
@@ -99,10 +96,10 @@ cmndPtr getWord () {
             }
         }
 
-        str[len] = c;
+        str[len] = *c;
         str[len + 1] = 0;
         len += 1;
-        c = getchar();
+        *c = getchar();
     }
     allocSize = len + 1;
     tmp = (word) malloc (sizeof(char) * allocSize);   //resize once more not to consume free space
@@ -170,7 +167,7 @@ decomPointer initCommand () {
     ret->argsNum = 0;
 }
 
-decomPointer getCommand () {
+decomPointer getCommand (char * c) {
     decomPointer begin = initCommand ();
     int redirected = 0;
     decomPointer curr = begin;
@@ -178,28 +175,27 @@ decomPointer getCommand () {
     cmndPtr currArg, tmp;
     curr->args = (cmndPtr) malloc (sizeof(struct cmnd));
     currArg = curr->args;
-    skipSpaces ();
-    if (c == '|' || c == '&' || c == '>' || c == '<') {
+    skipSpaces (c);
+    if (*c == '|' || *c == '&' || *c == '>' || *c == '<') {
         freeMem (&begin);
-        printf ("%s%c\n", "Error: no command stated before ", c);
+        printf ("%s%c\n", "Error: no command stated before ", *c);
         return NULL;
     }
-    //curr->command = getWord ();
 
-    while ((c != '\n') && (currArg != NULL)) {
-        skipSpaces ();
+    while ((*c != '\n') && (currArg != NULL)) {
+        skipSpaces (c);
 
-        if (c == '|') {
+        if (*c == '|') {
             //puts("| detected");
             curr->pipelnout = 1;
-            c = getchar ();
-            skipSpaces ();
-            if (c == '\n') {
+            *c = getchar ();
+            skipSpaces (c);
+            if (*c == '\n') {
                 printf("Wrong argument: | must be followed by command \n");
                 freeMem (&begin);
                 return NULL;
             }
-            curr->next = getCommand ();
+            curr->next = getCommand (c);
             if (curr->next == NULL) {
                 printf("Wrong argument: | must be followed by command \n");
                 freeMem (&begin);
@@ -209,35 +205,33 @@ decomPointer getCommand () {
             }
             curr->next->pipelnin = 1;
             break;
-
         }
-        else if (c == '&') {
+        else if (*c == '&') {
             //puts("& detected");
             curr->backgr = 1;
-            c = getchar ();
-            skipSpaces ();
-            if (c != '\n') {
+            *c = getchar ();
+            skipSpaces (c);
+            if (*c != '\n') {
                 printf("Wrong argument: & must be at the end ");
                 freeMem (&begin);
                 return NULL;
             }
             break;
-
         }
-        else if (c == '>') {
+        else if (*c == '>') {
             if (curr->outredend || curr->outredbeg) {
                 printf ("%s\n", "Error: double output redirect");
                 freeMem (&begin);
                 return NULL;
             }
-            c = getchar ();
-            if (c == '>') {
+            *c = getchar ();
+            if (*c == '>') {
                 curr->outredend = 1;
-                c = getchar ();
+                *c = getchar ();
             } else {
                 curr->outredbeg = 1;
             }
-            curr->redout = getWord();
+            curr->redout = getWord(c);
             if (curr->redout == NULL) {
                 printf("Output redirect error: No filename stated\n");
                 freeMem (&begin);
@@ -246,15 +240,15 @@ decomPointer getCommand () {
             redirected = 1;
             continue;
         }
-        else if (c == '<') {
+        else if (*c == '<') {
             if (curr->inred) {
                 printf ("%s\n", "Error: double input redirect");
                 freeMem (&begin);
                 return NULL;
             }
-            c = getchar ();
+            *c= getchar ();
             curr->inred = 1;
-            curr->redin = getWord();
+            curr->redin = getWord(c);
             if (curr->redin == NULL) {
                 printf("Input redirect error: No filename stated\n");
                 freeMem (&begin);
@@ -263,8 +257,8 @@ decomPointer getCommand () {
             redirected = 1;
             continue;
         }
-        skipSpaces ();
-        currArg->next = getWord ();
+        skipSpaces (c);
+        currArg->next = getWord (c);
         if (currArg->next != NULL && (curr->inred || curr->outredbeg || curr->outredend)) {
             printf("Input error: Output redirect must be at end\n");
             freeMem (&begin);
@@ -276,7 +270,7 @@ decomPointer getCommand () {
     tmp = curr->args;
     curr->args = curr->args->next;
     free (tmp);
-    skipToNewline ();
+    skipToNewLine (c);
     if ((begin->inred && begin->pipelnin) || ((begin->outredbeg || begin->outredend) && begin->pipelnout)) {
         printf("Stdio redirect and pipeline conflict\n");
         freeMem (&begin);
@@ -445,7 +439,9 @@ void execute (decomPointer begin) {
 }
 
 int main () {
-    // char c - made it a global variable to reduce number of pointers and a bit clarify the code
+    char c;
+    const char * exitstr = "exit";
+    const char * cdstr = "cd";
     pid_t pdt, pid;
     int backgrounds = 0;
     stdioCopy[0] = dup(0);
@@ -458,8 +454,8 @@ int main () {
     else {
         printf("%s$ ", cwd);
     }
-    c = getchar ();
-    decomPointer curr = getCommand ();
+    c= getchar ();
+    decomPointer curr = getCommand (&c);
     printf ("\n");
     if (curr != NULL) {
         exitflag = strcmp (curr->args->wrd, exitstr);
@@ -495,7 +491,7 @@ int main () {
             freeMem (&curr);
         }
 
-        skipToNewline ();
+        skipToNewLine (&c);
         if (getcwd(cwd, sizeof(char) * PATH_MAX) == NULL) {
             perror("getcwd() error");
         }
@@ -503,7 +499,7 @@ int main () {
             printf("%s$ ", cwd);
         }
         c = getchar ();
-        curr = getCommand ();
+        curr = getCommand (&c);
 	    printf("\n");
         if (curr != NULL) {
             exitflag = strcmp (curr->args->wrd, exitstr);
