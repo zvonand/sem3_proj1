@@ -43,7 +43,7 @@ void skipToNewLine (char * c) {
 
 cmndPtr getWord (char * c) {                    //input a single word and put it in cmnd
     int len = 0;
-    char c1;
+    int c1;
     int allocSize = 5;
     int doquote = 0;
     int quote = 0;
@@ -65,7 +65,7 @@ cmndPtr getWord (char * c) {                    //input a single word and put it
             tmp = NULL;
         }
 
-        if (*c == "\""[0] && !quote) {
+        if (*c == '"' && !quote) {
             doquote = !doquote;
             *c = getchar ();
             continue;
@@ -75,7 +75,7 @@ cmndPtr getWord (char * c) {                    //input a single word and put it
             continue;
         }
 
-        if (*c == "\\"[0]) {
+        if (*c == '\\') {
             *c = getchar ();
             if (*c == '\n') {
                 printf ("> ");
