@@ -399,6 +399,7 @@ int main () {                                   //a bit too large, but simple
     stdioCopy[0] = dup(0);
     stdioCopy[1] = dup(1);
     int exitflag, chdirflag;
+    decomPointer curr;
     word cwd = (word) malloc (PATH_MAX * sizeof (char));
     if (getcwd(cwd, sizeof(char) * PATH_MAX) == NULL) {
         perror("getcwd() error");
@@ -406,13 +407,20 @@ int main () {                                   //a bit too large, but simple
     else {
         printf("%s$ ", cwd);
     }
-    c= getchar ();
-    decomPointer curr = getCommand (&c);
-    printf ("\n");
-    if (curr != NULL) {
-        exitflag = strcmp (curr->args->wrd, exitstr);
+    int tmp;
+    tmp = getchar ();
+    if (tmp == EOF) {
+        exitflag = 0;
+        printf("\n");
     } else {
-        exitflag = 1;
+        c = (char) tmp;
+        curr = getCommand (&c);
+        printf ("\n");
+        if (curr != NULL) {
+            exitflag = strcmp (curr->args->wrd, exitstr);
+        } else {
+            exitflag = 1;
+        }
     }
 
     while (exitflag != 0) {                     //while command != exit
@@ -451,14 +459,20 @@ int main () {                                   //a bit too large, but simple
         else {
             printf("%s$ ", cwd);
         }
-        c = getchar ();
-        curr = getCommand (&c);
-	    printf("\n");
-        if (curr != NULL) {
-            exitflag = strcmp (curr->args->wrd, exitstr);
+        tmp = getchar ();
+        if (tmp == EOF) {
+            exitflag = 0;
+            printf("\n");
         } else {
-            exitflag = 1;
+            c = (char) tmp;
+            curr = getCommand (&c);
+            printf("\n");
+            if (curr != NULL) {
+                exitflag = strcmp (curr->args->wrd, exitstr);
+            } else {
+                exitflag = 1;
 
+            }
         }
 
     }
