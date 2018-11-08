@@ -27,7 +27,7 @@ struct decomposed {                             //for storing command with all n
 };
 typedef struct decomposed * decomPointer;
 
-void skipSpaces (char * c) {
+void skipSpaces (char * c) {                    //do getchar until non-space met
     while (*c == ' ') {
         *c = getchar ();
     }
@@ -55,6 +55,10 @@ cmndPtr getWord (char * c) {                    //input a single word and put it
         free (str);
         return NULL;        //word is empty, nothing to read
     }
+    /**
+        Word is being read until special symbols met or:
+        While in double/single quotes - wait for the second quote
+    **/
     while (quote || doquote || (*c != ' ' && *c != '\n'  && *c != '|'  && *c != '&' && *c != '>' && *c != '<')) {
         if (len >= allocSize - 1) {                     //memory reallocation if needed
             allocSize += allocSize;
@@ -102,18 +106,18 @@ cmndPtr getWord (char * c) {                    //input a single word and put it
         *c = getchar();
     }
     allocSize = len + 1;
-    tmp = (word) malloc (sizeof(char) * allocSize);   //resize once more not to consume free space
+    tmp = (word) malloc (sizeof(char) * allocSize);   //reallocate once more not to consume free space
     strcpy (tmp, str);
     free (str);
     str = tmp;
     tmp = NULL;
 
-    cmndPtr ret;                                    //create a returnable structure
+    cmndPtr ret;                                    //create a returnable struct cmnd
     ret = (cmndPtr) malloc (sizeof(struct cmnd));;
     ret->wrd = str;
     ret->len = len;
     ret->next = NULL;
-    if (len == 0) {
+    if (len == 0) {                                 //if word was empty - return NULL and free memory
         free (ret->wrd);
         free (ret);
         return NULL;
@@ -121,7 +125,7 @@ cmndPtr getWord (char * c) {                    //input a single word and put it
     return ret;
 }
 
-void freeCmnd (cmndPtr * beg) {                 //free unused cmnd
+void freeCmnd (cmndPtr * beg) {                 //free unused struct cmnd
     cmndPtr curr1, curr2;
     curr1 = *beg;
     while (curr1 != NULL) {
@@ -140,7 +144,7 @@ void freeMem (decomPointer * beg) {             //free unused decomposed command
     while (curr1 != NULL) {
         curr2 = curr1->next;
         if (curr1->args != NULL) {
-            freeCmnd(&curr1->args);
+            freeCmnd(&curr1->args);             //free substructure
         }
         free (curr1->redin);
         free (curr1->redout);
@@ -152,7 +156,7 @@ void freeMem (decomPointer * beg) {             //free unused decomposed command
 
 }
 
-decomPointer initCommand () {                   //create template for decomposed command with default values
+decomPointer initCommand () {                   //initialize template for decomposed command with default values
     decomPointer ret  = (decomPointer) malloc (sizeof(struct decomposed));
     ret->args = NULL;
     ret->redin = NULL;
@@ -167,7 +171,12 @@ decomPointer initCommand () {                   //create template for decomposed
     ret->argsNum = 0;
 }
 
-decomPointer getCommand (char * c) {            //getWord until newline, incompatible flags or special symbols
+/**
+    Record a struct decomposed - input command, analyze flags,
+    start a next record if pipeline '|' found, input filename for IO redirect if found
+**/
+
+decomPointer getCommand (char * c) {
     decomPointer begin = initCommand ();
     int redirected = 0;
     decomPointer curr = begin;
@@ -184,6 +193,10 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
 
     while ((*c != '\n') && (currArg != NULL)) {
         skipSpaces (c);
+
+        /**
+            Special symbols analysis - setting flags values
+        **/
 
         if (*c == '|') {
             curr->pipelnout = 1;
@@ -261,8 +274,9 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
         }
         skipSpaces (c);
         currArg->next = getWord (c);
+        // nothing must follow IO redirect filenames except special symbols
         if (currArg->next != NULL && (curr->inred || curr->outredbeg || curr->outredend)) {
-            printf("Input error: Output redirect must be at end\n");
+            printf("Input error: IO redirect must be at end\n");
             freeMem (&begin);
             return NULL;
         }
@@ -285,7 +299,7 @@ decomPointer getCommand (char * c) {            //getWord until newline, incompa
     }
 }
 
-word * parseCmnd (decomPointer toParse) {       //return a char ** from decomposed for execvp
+word * parseCmnd (decomPointer toParse) {       //make a char ** from decomposed for execvp call
     int argsNum = 0;
     cmndPtr curr = toParse->args;
 
@@ -333,6 +347,9 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
         //  child process
         close (fd[0]);
         dup2 (fd[1], 1);
+        /**
+            Check for redirect flags, replace stdIO to file IO
+        **/
         if (begin->inred == 1) {
             ifile = open (begin->redin->wrd, O_RDONLY);
             if (ifile == -1) {
@@ -358,7 +375,7 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
         }
         execvp (argv[0], argv);
         //in case of error:
-        dup2 (stdioCopy[0], 0);
+        dup2 (stdioCopy[0], 0);                 //restore default IO descriptors and show error, exit with failure
         dup2 (stdioCopy[1], 1);
         printf("Error: %s\n", strerror(errno));
         exit (EXIT_FAILURE);
@@ -369,12 +386,17 @@ void execute (decomPointer begin) {             //main magic here, fork/exec cal
         char buf;
         close (fd[1]);
         if (begin->pipelnout && begin->next != NULL) {
+            /**
+                Found a pipeline output,
+                redirect execvp output to recursively called execute ()
+            **/
             dup2 (fd[0], 0);
             execute (begin->next);
             dup2 (stdioCopy[0], 0);
             dup2 (stdioCopy[1], 1);
         } else {
             dup2 (stdioCopy[1], 1);
+            //restore stdio
             while (fild = read (fd[0], &buf, sizeof(char)) > 0) {
                 write (1,&buf,1);
             }
@@ -423,7 +445,7 @@ int main () {                                   //a bit too large, but simple
         }
     }
 
-    while (exitflag != 0) {                     //while command != exit
+    while (exitflag != 0) {                     //while entered command != exit
         pid = waitpid(-1, NULL, WNOHANG);
         if (pid > 0) {
             backgrounds--;
